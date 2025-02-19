@@ -1,6 +1,7 @@
 <?php
 
 use PhpLlm\LlmChain\Bridge\Google\GoogleModel;
+use PhpLlm\LlmChain\Bridge\Google\PlatformFactory;
 use PhpLlm\LlmChain\Chain;
 use PhpLlm\LlmChain\Chain\ToolBox\Attribute\AsTool;
 use PhpLlm\LlmChain\Chain\ToolBox\ChainProcessor;
@@ -31,7 +32,7 @@ class Dummy
     }
 }
 
-$platform = PhpLlm\LlmChain\Bridge\Google\PlatformFactory::create($_ENV['GOOGLE_API_KEY']);
+$platform = PlatformFactory::create($_ENV['GOOGLE_API_KEY']);
 $llm = new GoogleModel(GoogleModel::GEMINI_2_FLASH);
 $dummy = new Dummy();
 
