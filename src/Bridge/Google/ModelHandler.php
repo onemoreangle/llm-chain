@@ -10,6 +10,8 @@ use PhpLlm\LlmChain\Model\Model;
 use PhpLlm\LlmChain\Model\Response\ResponseInterface as LlmResponse;
 use PhpLlm\LlmChain\Model\Response\StreamResponse;
 use PhpLlm\LlmChain\Model\Response\TextResponse;
+use PhpLlm\LlmChain\Model\Response\ToolCall;
+use PhpLlm\LlmChain\Model\Response\ToolCallResponse;
 use PhpLlm\LlmChain\Platform\ModelClient;
 use PhpLlm\LlmChain\Platform\ResponseConverter;
 use Symfony\Component\HttpClient\Chunk\ServerSentEvent;
@@ -47,7 +49,7 @@ final readonly class ModelHandler implements ModelClient, ResponseConverter
     {
         Assert::isInstanceOf($input, MessageBagInterface::class);
 
-        $body = new GoogleRequestBodyProducer($input);
+        $body = new GoogleRequestBodyProducer($input, $options);
 
         return $this->httpClient->request('POST', sprintf('https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent', $model->getVersion()), [
             'headers' => [
@@ -72,16 +74,36 @@ final readonly class ModelHandler implements ModelClient, ResponseConverter
 
         $data = $response->toArray();
 
-        if (!isset($data['candidates'][0]['content']['parts'][0]['text'])) {
-            throw new RuntimeException('Response does not contain any content');
+        if (!isset($data['candidates'][0])) {
+            throw new RuntimeException('Response does not contain any candidates');
         }
 
-        return new TextResponse($data['candidates'][0]['content']['parts'][0]['text']);
+        $candidate = $data['candidates'][0];
+
+        // Handle function call response
+        if (isset($candidate['content']['parts'][0]['functionCall'])) {
+            $functionCall = $candidate['content']['parts'][0]['functionCall'];
+
+            $toolCall = new ToolCall(
+                id: uniqid('google-'), // Google doesn't provide IDs
+                name: $functionCall['name'],
+                arguments: (array) $functionCall['args']
+            );
+
+            return new ToolCallResponse($toolCall);
+        }
+
+        // Regular text response
+        if (isset($candidate['content']['parts'][0]['text'])) {
+            return new TextResponse($candidate['content']['parts'][0]['text']);
+        }
+
+        throw new RuntimeException('Response format not supported');
     }
 
     private function convertStream(ResponseInterface $response): \Generator
     {
-        foreach ((new EventSourceHttpClient())->stream($response) as $chunk) {
+        foreach ($this->httpClient->stream($response) as $chunk) {
             if (!$chunk instanceof ServerSentEvent || '[DONE]' === $chunk->getData()) {
                 continue;
             }
@@ -89,15 +111,29 @@ final readonly class ModelHandler implements ModelClient, ResponseConverter
             try {
                 $data = $chunk->getArrayData();
             } catch (JsonException) {
-                // try catch only needed for Symfony 6.4
                 continue;
             }
 
-            if (!isset($data['candidates'][0]['content']['parts'][0]['text'])) {
+            if (!isset($data['candidates'][0]['content']['parts'][0])) {
                 continue;
             }
 
-            yield $data['candidates'][0]['content']['parts'][0]['text'];
+            $part = $data['candidates'][0]['content']['parts'][0];
+
+            if (isset($part['functionCall'])) {
+                $toolCall = new ToolCall(
+                    id: uniqid('google-'),
+                    name: $part['functionCall']['name'],
+                    arguments: (array) $part['functionCall']['args']
+                );
+
+                yield new ToolCallResponse($toolCall);
+                continue;
+            }
+
+            if (isset($part['text'])) {
+                yield $part['text'];
+            }
         }
     }
 }

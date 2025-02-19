@@ -2,6 +2,7 @@
 
 namespace PhpLlm\LlmChain\Bridge\Google;
 
+use PhpLlm\LlmChain\Chain\ToolBox\Metadata;
 use PhpLlm\LlmChain\Model\Message\AssistantMessage;
 use PhpLlm\LlmChain\Model\Message\Content\Audio;
 use PhpLlm\LlmChain\Model\Message\Content\ContentVisitor;
@@ -12,11 +13,15 @@ use PhpLlm\LlmChain\Model\Message\MessageVisitor;
 use PhpLlm\LlmChain\Model\Message\SystemMessage;
 use PhpLlm\LlmChain\Model\Message\ToolCallMessage;
 use PhpLlm\LlmChain\Model\Message\UserMessage;
+use PhpLlm\LlmChain\Model\Response\ToolCall;
 use PhpLlm\LlmChain\Platform\RequestBodyProducer;
 
 final class GoogleRequestBodyProducer implements RequestBodyProducer, MessageVisitor, ContentVisitor, \JsonSerializable
 {
-    public function __construct(protected MessageBagInterface $bag)
+    /**
+     * @param array<string, mixed> $options
+     */
+    public function __construct(protected MessageBagInterface $bag, protected array $options = [])
     {
     }
 
@@ -27,10 +32,7 @@ final class GoogleRequestBodyProducer implements RequestBodyProducer, MessageVis
     {
         $contents = [];
         foreach ($this->bag->withoutSystemMessage()->getMessages() as $message) {
-            $contents[] = [
-                'role' => $message->getRole(),
-                'parts' => $message->accept($this),
-            ];
+            $contents[] = $message->accept($this);
         }
 
         $body = [
@@ -44,11 +46,46 @@ final class GoogleRequestBodyProducer implements RequestBodyProducer, MessageVis
             ];
         }
 
+        if (!empty($this->options['tools'])) {
+            $body['tools'] = [
+                [
+                    'function_declarations' => array_map(
+                        fn ($metadata) => $this->metadata($metadata),
+                        $this->options['tools']
+                    ),
+                ],
+            ];
+        }
+
         return $body;
     }
 
     /**
-     * @return array<array<string, string>>
+     * @return array<string, mixed>
+     */
+    private function metadata(Metadata $metadata): array
+    {
+        $declaration = [
+            'name' => $metadata->name,
+            'description' => $metadata->description,
+        ];
+
+        if (null !== $metadata->parameters) {
+            $declaration['parameters'] = [
+                'type' => 'object',
+                'properties' => $metadata->parameters['properties'],
+            ];
+
+            if (!empty($metadata->parameters['required'])) {
+                $declaration['parameters']['required'] = $metadata->parameters['required'];
+            }
+        }
+
+        return $declaration;
+    }
+
+    /**
+     * @return array<string, mixed>
      */
     public function visitUserMessage(UserMessage $message): array
     {
@@ -57,23 +94,47 @@ final class GoogleRequestBodyProducer implements RequestBodyProducer, MessageVis
             $parts[] = [...$content->accept($this)];
         }
 
-        return $parts;
+        return [
+            'role' => $message->getRole(),
+            'parts' => $parts,
+        ];
     }
 
     /**
-     * @return array<array<string, string>>
+     * @return array<string, mixed>
      */
     public function visitAssistantMessage(AssistantMessage $message): array
     {
-        return [['text' => $message->content]];
+        if ($message->toolCalls) {
+            return [
+                'role' => 'model',
+                'parts' => array_map(
+                    fn (ToolCall $toolCall) => [
+                        'functionCall' => [
+                            'name' => $toolCall->name,
+                            'args' => $toolCall->arguments,
+                        ],
+                    ],
+                    $message->toolCalls
+                ),
+            ];
+        }
+
+        return [
+            'role' => $message->getRole(),
+            'parts' => [['text' => $message->content]],
+        ];
     }
 
     /**
-     * @return array<array<string, string>>
+     * @return array<string, mixed>
      */
     public function visitSystemMessage(SystemMessage $message): array
     {
-        return [['text' => $message->content]];
+        return [
+            'role' => $message->getRole(),
+            'parts' => [['text' => $message->content]],
+        ];
     }
 
     /**
@@ -103,12 +164,23 @@ final class GoogleRequestBodyProducer implements RequestBodyProducer, MessageVis
     }
 
     /**
-     * @return string[]
+     * @return array<string, mixed>
      */
     public function visitToolCallMessage(ToolCallMessage $message): array
     {
-        // TODO: support tool call message
-        return [];
+        return [
+            'parts' => [
+                [
+                    'functionResponse' => [
+                        'name' => $message->toolCall->name,
+                        'response' => [
+                            'name' => $message->toolCall->name,
+                            'content' => $message->content,
+                        ],
+                    ],
+                ],
+            ],
+        ];
     }
 
     /**

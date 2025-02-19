@@ -55,6 +55,6 @@ final readonly class GoogleModel implements LanguageModel
 
     public function supportsToolCalling(): bool
     {
-        return false;
+        return true;
     }
 }
