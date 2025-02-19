@@ -29,6 +29,9 @@ final readonly class SystemMessage implements MessageInterface
         ];
     }
 
+    /**
+     * @return array<mixed|string,mixed>
+     */
     public function accept(MessageVisitor $visitor): array
     {
         return $visitor->visitSystemMessage($this);

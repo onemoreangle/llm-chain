@@ -35,6 +35,9 @@ final readonly class ToolCallMessage implements MessageInterface
         ];
     }
 
+    /**
+     * @return array<mixed|string,mixed>
+     */
     public function accept(MessageVisitor $visitor): array
     {
         return $visitor->visitToolCallMessage($this);

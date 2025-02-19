@@ -16,13 +16,13 @@ use PhpLlm\LlmChain\Platform\RequestBodyProducer;
 
 final class GoogleRequestBodyProducer implements RequestBodyProducer, MessageVisitor, ContentVisitor, \JsonSerializable
 {
-    protected MessageBagInterface $bag;
-
-    public function __construct(MessageBagInterface $bag)
+    public function __construct(protected MessageBagInterface $bag)
     {
-        $this->bag = $bag;
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     public function createBody(): array
     {
         $contents = [];
@@ -47,6 +47,9 @@ final class GoogleRequestBodyProducer implements RequestBodyProducer, MessageVis
         return $body;
     }
 
+    /**
+     * @return array<array<string, string>>
+     */
     public function visitUserMessage(UserMessage $message): array
     {
         $parts = [];
@@ -57,39 +60,60 @@ final class GoogleRequestBodyProducer implements RequestBodyProducer, MessageVis
         return $parts;
     }
 
+    /**
+     * @return array<array<string, string>>
+     */
     public function visitAssistantMessage(AssistantMessage $message): array
     {
         return [['text' => $message->content]];
     }
 
+    /**
+     * @return array<array<string, string>>
+     */
     public function visitSystemMessage(SystemMessage $message): array
     {
         return [['text' => $message->content]];
     }
 
+    /**
+     * @return string[]
+     */
     public function visitText(Text $content): array
     {
         return ['text' => $content->text];
     }
 
+    /**
+     * @return string[]
+     */
     public function visitImage(Image $content): array
     {
         // TODO: support image
         return [];
     }
 
+    /**
+     * @return string[]
+     */
     public function visitAudio(Audio $content): array
     {
         // TODO: support audio
         return [];
     }
 
+    /**
+     * @return string[]
+     */
     public function visitToolCallMessage(ToolCallMessage $message): array
     {
         // TODO: support tool call message
         return [];
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     public function jsonSerialize(): array
     {
         return $this->createBody();
